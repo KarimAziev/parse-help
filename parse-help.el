@@ -698,23 +698,27 @@ Return list of plists with keywords :specifier, :argument and :specifier."
 (defun parse-help-generate-key (flag &optional used-keys)
   "Generate hydra key for option FLAG that not present in USED-KEYS."
   (when (> (length flag) 2)
-    (setq flag (replace-regexp-in-string "--" "" flag)))
+    (setq flag (replace-regexp-in-string "^[-][-]" "" flag)))
   (if (and flag (member flag '("--" "-"))
            (not (member "-" used-keys)))
       "-"
-    (or (seq-find (fp-and key-valid-p (fp-compose not (fp-rpartial member used-keys)))
+    (or (seq-find (fp-and key-valid-p (fp-compose not (fp-rpartial member
+                                                                   used-keys)))
                   (mapcar (fp-rpartial substring 0 1)
                           (split-string
                            flag "-" t)))
-        (seq-find (fp-and key-valid-p (fp-compose not (fp-rpartial member used-keys)))
+        (seq-find (fp-and key-valid-p (fp-compose not (fp-rpartial member
+                                                                   used-keys)))
                   (split-string flag "" t))
         (seq-find (fp-and key-valid-p
                           (fp-compose not (fp-rpartial member used-keys)))
-                  (seq-difference (nconc (parse-help--get-alphabete "a")
-                                         (parse-help--get-alphabete "A")
-                                         (delete "\""
-                                                 (parse-help--get-alphabete "!" 25)))
-                                  used-keys)))))
+                  (seq-difference
+                   (nconc (parse-help--get-alphabete "a")
+                          (parse-help--get-alphabete "A")
+                          (delete "\""
+                                  (parse-help--get-alphabete "!"
+                                                             25)))
+                   used-keys)))))
 
 (defun parse-help-transient-ensure-keys (plists all-keys)
   "Generate key for PLISTS excluding ALL-KEYS."
@@ -833,7 +837,7 @@ Return string with command CMD and ARGS."
     (setq prefixes (parse-help-group-by-prefixes
                     cmds))
     (dolist (cell prefixes)
-      (let ((prefix (car cell))
+      (let ((prefix (replace-regexp-in-string "^[-][-]" "" (car cell)))
             (items (cdr cell)))
         (let ((used-keys)
               (pl))
@@ -1089,27 +1093,127 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
   (insert (mapconcat (apply-partially #'format "%s")
                      (transient-args transient-current-command)
                      "\s")))
+(defun parse-help-call-backends (backends)
+  "Invoke BACKENDS on current buffer.
+BACKENDS is alist of functions and arguments."
+  (let ((results))
+    (dolist (backend backends)
+      (condition-case err
+          (save-excursion
+            (let ((res (apply (car backend)
+                              (cdr backend))))
+              (when res (setq results (push res results)))))
+        (error (message "An error ocuured %s" err))))
+    results))
+
+(defun parse-help--parse-output (output backends)
+  "Invoke BACKENDS in temp buffer with OUTPUT.
+BACKENDS is alist of functions and arguments."
+  (parse-help-with-output
+      output
+    (parse-help-call-backends backends)))
 
 (defun parse-help-parse-output (output command)
   "Parse OUTPUT from COMMAND."
-  (let* ((results (list
-                   (parse-help-with-output output
-                     (parse-help-all-flags))
-                   (parse-help-with-output output
-                     (parse-help-parse-rows-forward))
-                   (parse-help-with-output output
-                     (parse-help--columns "^[\s\t]?+\\([-]+[a-zZ-A-0-9_]+\\)[:]?[\s][\s]+" 1))))
+  (let* ((results (parse-help--parse-output
+                   output
+                   '((parse-help-all-flags)
+                     (parse-help-parse-rows-forward)
+                     (parse-help--columns
+                      "^[\s\t]?+\\([-]+[a-zZ-A-0-9_]+\\)[:]?[\s][\s]+"
+                      1))))
          (options (car (seq-sort-by #'length #'> results)))
          (commands-or-vars
           (parse-help-group-columns
            (parse-help-with-output output
-             (parse-help--columns "^[\s\t]?+\\([a-zZ-A]+[a-zZ-A-0-9_]+\\)[:]?[\s][\s]+"
-                                  1))))
+             (parse-help--columns
+              "^[\s\t]?+\\([a-zZ-A]+[a-zZ-A-0-9_]+\\)[:]?[\s][\s]+"
+              1))))
          (usage (parse-help-get-usage-doc output)))
     (append `((:usage . ,usage)
               (:command . ,command)
               (:arguments . ,(mapcar 'parse-help-normalize-option options)))
             commands-or-vars)))
+
+(defun parse-help-transient-switch-from-region (beg end)
+  "Parse region between BEG and END to transient switch.
+Region should have form --email-obfuscation=none|javascript|references."
+  (interactive "r")
+  (let* ((input (if (region-active-p)
+                    (buffer-substring-no-properties
+                     beg
+                     end)
+                  (re-search-forward
+                   "\\(--\\([^= ]+\\)[ =]+\\(\\(\\([^|,\s\n]+\\)[|]\\)+\\)\\)"
+                   nil t 1)
+                  (concat
+                   (buffer-substring-no-properties (match-beginning 0)
+                                                   (line-end-position)))))
+         (result (parse-help-switch-from-string
+                  (read-string "Ok?" (string-trim
+                                      input)))))
+    (pp result)))
+(defun parse-help-switch-from-string (str)
+  "Parse STR --email-obfuscation=none|javascript|references."
+  (let ((option)
+        (choices))
+    (with-temp-buffer
+      (insert str)
+      (when (re-search-backward
+             "\\(--\\([^= ]+\\)[ =]+\\(\\(\\([^|]+\\)[|]?\\)+\\)\\)" nil t 1)
+        (setq option (match-string-no-properties 2))
+        (setq choices (match-string-no-properties 3))
+        (when choices
+          (setq choices (mapcar (lambda (it)
+                                  (when (string-prefix-p "<" it)
+                                    (setq it
+                                          (substring-no-properties it 1)))
+                                  (when (string-suffix-p ">" it)
+                                    (setq it
+                                          (substring-no-properties it
+                                                                   0
+                                                                   (1-
+                                                                    (length
+                                                                     it)))))
+                                  it)
+                                (split-string choices "|" t))))))
+    `(transient-define-argument ,(intern (concat (replace-regexp-in-string
+                                                  "[^a-z-]" "" (file-name-base
+                                                                (buffer-name)))
+                                                 "-"
+                                                 option))
+       ()
+       ,(format "Argument for %s." option)
+       :class 'transient-switches
+       :argument-format ,(concat "--" option "=%s")
+       :argument-regexp ,(concat "\\(" (concat "--" option "=")
+                                 (regexp-opt choices t)
+                                 "\\)")
+       :choices ',choices)))
+
+(defun parse-help-extract-all-switches ()
+  "Parse region between BEG and END to transient switch.
+Region should have form --email-obfuscation=none|javascript|references."
+  (interactive)
+  (let ((opts)
+        (end (when (region-active-p)
+               (region-end))))
+    (while (re-search-forward
+            "\\(--\\([^= ]+\\)[ =]+\\(\\(\\([^|,\s\n]+\\)[|]\\)+\\)\\)" end t 1)
+      (setq opts
+            (push (string-trim
+                   (buffer-substring-no-properties (match-beginning
+                                                    0)
+                                                   (line-end-position)))
+                  opts)))
+    (with-current-buffer (get-buffer-create "*generated-switches*")
+      (erase-buffer)
+      (pp-emacs-lisp-code
+       (append (list 'progn)
+               (mapcar 'parse-help-switch-from-string opts)))
+      (delay-mode-hooks (emacs-lisp-mode)
+                        (font-lock-ensure))
+      (pop-to-buffer (current-buffer)))))
 
 ;;;###autoload
 (defun parse-help-command (command)
