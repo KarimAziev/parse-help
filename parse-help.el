@@ -33,6 +33,13 @@
 
 (require 'fp)
 (require 'transient)
+
+
+(defcustom parse-help-use-command-long-descriptions nil
+  "Whether to use long command descriptions from help string."
+  :group 'parse-help
+  :type 'boolean)
+
 (defvar parse-help-flags-regexp
   "\\[?\\(\\([-<][-]?[^\s\t\n>]+\\)[\s\t\n>][>]?\\)")
 
@@ -224,25 +231,26 @@ The optional argument COUNT is a number that indicates the
   (point))
 
 (defun parse-help-move-with (fn &optional n)
-  "Move by calling FN N times.
+	"Move by calling FN N times.
 Return new position if changed, nil otherwise."
-  (unless n (setq n 1))
-  (when-let ((str-start (nth 8 (syntax-ppss (point)))))
-    (goto-char str-start))
-  (let ((init-pos (point))
-        (pos)
-        (count n))
-    (while (and (not (= count 0))
-                (when-let ((end (ignore-errors
-                                  (funcall fn)
-                                  (point))))
-                  (unless (= end (or pos init-pos))
-                    (setq pos end))))
-      (setq count (1- count)))
-    (if (= count 0)
-        pos
-      (goto-char init-pos)
-      nil)))
+	(unless n (setq n 1))
+	(with-syntax-table emacs-lisp-mode-syntax-table
+		(when-let ((str-start (nth 8 (syntax-ppss (point)))))
+			(goto-char str-start))
+		(let ((init-pos (point))
+					(pos)
+					(count n))
+			(while (and (not (= count 0))
+									(when-let ((end (ignore-errors
+																		(funcall fn)
+																		(point))))
+										(unless (= end (or pos init-pos))
+											(setq pos end))))
+				(setq count (1- count)))
+			(if (= count 0)
+					pos
+				(goto-char init-pos)
+				nil))))
 
 (defun parse-help-re-search-forward (regexp &optional bound noerror count)
   "Search forward from point for REGEXP ignoring elisp comments and strings.
@@ -685,25 +693,26 @@ NUM specifies which parenthesized expression in the last regexp."
   (mapcar (apply-partially #'plist-get plist) keywords))
 
 (defun parse-help--parse-squared-brackets ()
-  "Parse flags wrapped in squared brackets at point.
+	"Parse flags wrapped in squared brackets at point.
 Return plist with keywords :specifier, :argument and :specifier."
-  (let ((flags))
+	(let ((flags))
     (while (looking-at "\\[")
       (when-let* ((beg (point))
-                  (end (ignore-errors (forward-sexp 1)
-                                      (when (looking-back "\\]" 0)
-                                        (point))))
-                  (str (buffer-substring-no-properties (1+ beg) (1- end))))
+                  (end (or (parse-help-move-with 'forward-sexp)
+													 (line-end-position)))
+                  (str (buffer-substring-no-properties (1+ beg)
+																											 (1- end))))
         (save-excursion
           (goto-char (1+ beg))
           (while (re-search-forward
                   "\\(-[$A-Za-z0-9][$A-Za-z0-9]?\\)?|?\\(--[$A-Za-z0-9-]+\\)[\s\t]*\\([<][^>]+>\\)?"
                   (1- end) t 1)
             (push (parse-help-plist-remove-nils
-                   (list :shortarg (match-string-no-properties 1)
-                         :argument (match-string-no-properties 2)
-                         :specifier (match-string-no-properties 3)
-                         :description ""))
+                   (list
+										:shortarg (match-string-no-properties 1)
+                    :argument (match-string-no-properties 2)
+                    :specifier (match-string-no-properties 3)
+                    :description ""))
                   flags)))
         (skip-chars-forward "\s\t\n\r\f")))
     (delete nil flags)))
@@ -961,7 +970,7 @@ Name is generated from PREFIX-NAME and argument or shortarg."
                                             shortarg))
            (plist-get plist :description)))
        :description ,(parse-help-short-description description)
-       :argument ,(if (string-suffix-p "=" argument)
+       :argument ,(if (or (string-suffix-p "=" argument))
                       argument
                     (concat (string-trim argument) " "))
        :class 'transient-option
@@ -982,10 +991,11 @@ Name is generated from PREFIX-NAME and argument or shortarg."
     switches))
 
 (defun parse-help-maybe-split (column-name mapped-commands)
-  "Group MAPPED-COMMANDS to vectors with COLUMN-NAME."
-  (seq-map-indexed
-   (lambda (items idx) (apply #'vector (append (list (format "%s %d" column-name idx))
-                                          items)))
+	"Group MAPPED-COMMANDS to vectors with COLUMN-NAME."
+	(seq-map-indexed
+   (lambda (items idx)
+		 (apply #'vector (append (list (format "%s %d" column-name idx))
+                             items)))
    (seq-remove #'null  (list (seq-take mapped-commands 30)
                              (seq-drop mapped-commands 30)))))
 
@@ -1138,6 +1148,8 @@ Return string with command CMD and ARGS."
                   switch-options))))
     result))
 
+
+
 (defun parse-help-map-commands-vectors (prefix-name commands)
   "Return vector with COMMANDS.
 PREFIX-NAME is parent command."
@@ -1149,22 +1161,65 @@ PREFIX-NAME is parent command."
               (apply-partially #'remove nil)
               (apply-partially #'parse-help-plist-props
                                '(:shortarg :key)))
-             (fp-compose
-              list
-              (fp-rpartial 'string-join " - ")
-              (apply-partially #'remove nil)
-              (fp-converge list
-                           [(fp-rpartial plist-get :argument)
-                            (fp-compose
-                             (fp-when stringp
-                                      (fp-compose car
-                                                  (fp-rpartial split-string
-                                                               "[\n\r\f]" t)))
-                             (fp-or (fp-rpartial plist-get :description)
-                                    (fp-rpartial plist-get :argument)))]))
-             (fp-compose list (apply-partially #'parse-help-transient-name prefix-name))])
+             (if parse-help-use-command-long-descriptions
+                 (fp-compose
+                  list
+                  (fp-rpartial 'string-join " - ")
+                  (apply-partially #'remove nil)
+                  (fp-converge list
+                               [(fp-rpartial plist-get :argument)
+                                (fp-compose
+                                 (fp-when stringp
+                                   (fp-compose car
+                                               (fp-rpartial split-string
+                                                            "[\n\r\f]" t)))
+                                 (fp-rpartial plist-get :argument)
+                                 (fp-or (fp-rpartial plist-get :description)
+                                        (fp-rpartial plist-get :argument)))]))
+               (fp-compose list (fp-rpartial plist-get :argument)))
+             (fp-compose list (apply-partially #'parse-help-transient-name
+                                               prefix-name))])
            commands)))
 
+(defun parse-help-map-arguments-vector-short (arguments)
+  "Return vector with ARGUMENTS.
+PREFIX-NAME is parent command."
+  (parse-help-maybe-split
+   "Arguments"
+   (mapcar
+    (lambda (pl)
+      (let* ((arg (or (plist-get pl :argument)
+                      (plist-get pl :shortarg)))
+             (key (or (plist-get pl :key)
+                      (plist-get pl :shortarg)))
+             (descr (seq-remove #'string-empty-p
+                                (remove nil
+                                        (parse-help-plist-props
+                                         '(:description
+                                           :argument
+                                           :key
+                                           :shortarg)
+                                         pl))))
+             (props (parse-help-plist-omit '(:key
+                                             :shortarg
+                                             :specifier
+                                             :description
+                                             :argument)
+                                           pl))
+             (result (append (list
+                              key
+                              (parse-help-short-description
+                               (or (car-safe descr)
+                                   ""))
+                              (if (or (string-suffix-p
+                                       "=" arg)
+                                      (string-suffix-p
+                                       " " arg))
+                                  arg
+                                (concat arg " ")))
+                             props)))
+        result))
+    arguments)))
 (defun parse-help-map-arguments-vector (prefix-name arguments)
   "Return vector with ARGUMENTS.
 PREFIX-NAME is parent command."
@@ -1177,8 +1232,8 @@ PREFIX-NAME is parent command."
                               (apply-partially #'parse-help-plist-props
                                                '(:shortarg :key))
                               (fp-when (fp-rpartial plist-get :shortarg)
-                                       (apply-partially #'parse-help-plist-omit
-                                                        '(:key))))
+                                (apply-partially #'parse-help-plist-omit
+                                                 '(:key))))
                              (fp-compose list
                                          (apply-partially
                                           #'parse-help-transient-name
@@ -1199,17 +1254,16 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
     (setq all-keys (parse-help-transient-get-all-keys arguments))
     (setq switches (parse-help-transient-ensure-keys switches all-keys))
     (append
-     (seq-uniq (mapcar (apply-partially #'parse-help-define-argument prefix-name)
-                       arguments))
-     (seq-uniq (mapcar (apply-partially #'parse-help-define-argument prefix-name)
-                       switches))
+     ;; (seq-uniq (mapcar
+     ;;            (apply-partially #'parse-help-define-argument prefix-name)
+     ;;            arguments))
      `((transient-define-prefix ,(intern prefix-name)
          ()
          ,(or (parse-help-transient-description-to-doc
                (plist-get plist :description))
               "")
-         ,@(parse-help-map-arguments-vector prefix-name arguments)
-         ,@(parse-help-map-switches-arr switches)
+         [,@(parse-help-map-arguments-vector-short arguments)
+          ,@(parse-help-map-switches-arr switches)]
          ["Actions"
           ("RET" parse-help-transient-run-command)
           ("<return>" parse-help-transient-run-command)
@@ -1231,23 +1285,21 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
          (usage (parse-help-alist-get :usage cmd-cell))
          (arguments (seq-difference arguments switches)))
     (append
-     (seq-uniq (mapcar
-                (apply-partially #'parse-help-define-argument prefix-name)
-                arguments))
      (seq-uniq (mapcar (apply-partially #'parse-help-transient-map-to-prefix
-                                        prefix-name) commands))
+                                        prefix-name)
+                       commands))
      `((transient-define-prefix ,(intern prefix-name)
          ()
          ,(parse-help-transient-description-to-doc
            (or usage prefix-name))
-         ,@(parse-help-map-arguments-vector prefix-name arguments)
-         ,@(parse-help-map-commands-vectors prefix-name commands)
-         ,@(parse-help-map-switches-arr switches)
-         ["Actions"
-          ("RET" parse-help-transient-run-command)
-          ("<return>" parse-help-transient-run-command)
-          ("C-c TAB" parse-help-transient-insert)
-          ("C-c M-m" parse-help-transient-identity)])))))
+         [,@(parse-help-map-arguments-vector-short arguments)
+          ,@(parse-help-map-commands-vectors prefix-name commands)
+          ,@(parse-help-map-switches-arr switches)
+          ["Actions"
+           ("RET" parse-help-transient-run-command)
+           ("<return>" parse-help-transient-run-command)
+           ("C-c TAB" parse-help-transient-insert)
+           ("C-c M-m" parse-help-transient-identity)]])))))
 
 ;;;###autoload (autoload 'parse-help-transient-show-args "parse-help.el" nil t)
 (transient-define-suffix parse-help-transient-show-args ()
@@ -1369,8 +1421,10 @@ Region should have form --email-obfuscation=none|javascript|references."
     (pp result)))
 
 
-(defun parse-help-switch-from-string (str &optional prefix-name)
+(defun parse-help-switch-from-string (str &optional prefix-name plist)
   "Parse STR --email-obfuscation=none|javascript|references.
+If PLIST is omitted or nil, return full `transient-define-argument' form,
+othervise return  only props.
 PREFIX-NAME is added to the name of argument."
   (let ((option)
         (choices))
@@ -1405,21 +1459,29 @@ PREFIX-NAME is added to the name of argument."
                                                                      it)))))
                                   it)
                                 (split-string choices "|" t))))))
-    `(transient-define-argument ,(intern (concat
-                                          (or prefix-name
-                                           (replace-regexp-in-string
-                                            "[^a-z-]" "" (file-name-base
-                                                          (buffer-name))))
-                                          "-"
-                                          option))
-       ()
-       ,(format "Argument for %s." option)
-       :class 'transient-switches
-       :argument-format ,(concat "--" option "=%s")
-       :argument-regexp ,(concat "\\(" (concat "--" option "=")
-                          (regexp-opt choices t)
-                          "\\)")
-       :choices ',choices)))
+    (if plist
+        (list
+         :class 'transient-switches
+         :argument-format (concat "--" option "=%s")
+         :argument-regexp (concat "\\(" (concat "--" option "=")
+                                  (regexp-opt choices t)
+                                  "\\)")
+         :choices choices)
+      `(transient-define-argument ,(intern (concat
+                                            (or prefix-name
+                                                (replace-regexp-in-string
+                                                 "[^a-z-]" "" (file-name-base
+                                                               (buffer-name))))
+                                            "-"
+                                            option))
+         ()
+         ,(format "Argument for %s." option)
+         :class 'transient-switches
+         :argument-format ,(concat "--" option "=%s")
+         :argument-regexp ,(concat "\\(" (concat "--" option "=")
+                                   (regexp-opt choices t)
+                                   "\\)")
+         :choices ',choices))))
 
 ;;;###autoload
 (defun parse-help-extract-all-switches (prefix)
