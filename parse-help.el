@@ -231,26 +231,26 @@ The optional argument COUNT is a number that indicates the
   (point))
 
 (defun parse-help-move-with (fn &optional n)
-	"Move by calling FN N times.
+  "Move by calling FN N times.
 Return new position if changed, nil otherwise."
-	(unless n (setq n 1))
-	(with-syntax-table emacs-lisp-mode-syntax-table
-		(when-let ((str-start (nth 8 (syntax-ppss (point)))))
-			(goto-char str-start))
-		(let ((init-pos (point))
-					(pos)
-					(count n))
-			(while (and (not (= count 0))
-									(when-let ((end (ignore-errors
-																		(funcall fn)
-																		(point))))
-										(unless (= end (or pos init-pos))
-											(setq pos end))))
-				(setq count (1- count)))
-			(if (= count 0)
-					pos
-				(goto-char init-pos)
-				nil))))
+  (unless n (setq n 1))
+  (with-syntax-table emacs-lisp-mode-syntax-table
+    (when-let ((str-start (nth 8 (syntax-ppss (point)))))
+      (goto-char str-start))
+    (let ((init-pos (point))
+          (pos)
+          (count n))
+      (while (and (not (= count 0))
+                  (when-let ((end (ignore-errors
+                                    (funcall fn)
+                                    (point))))
+                    (unless (= end (or pos init-pos))
+                      (setq pos end))))
+        (setq count (1- count)))
+      (if (= count 0)
+          pos
+        (goto-char init-pos)
+        nil))))
 
 (defun parse-help-re-search-forward (regexp &optional bound noerror count)
   "Search forward from point for REGEXP ignoring elisp comments and strings.
@@ -693,15 +693,15 @@ NUM specifies which parenthesized expression in the last regexp."
   (mapcar (apply-partially #'plist-get plist) keywords))
 
 (defun parse-help--parse-squared-brackets ()
-	"Parse flags wrapped in squared brackets at point.
+  "Parse flags wrapped in squared brackets at point.
 Return plist with keywords :specifier, :argument and :specifier."
-	(let ((flags))
+  (let ((flags))
     (while (looking-at "\\[")
       (when-let* ((beg (point))
                   (end (or (parse-help-move-with 'forward-sexp)
-													 (line-end-position)))
+                           (line-end-position)))
                   (str (buffer-substring-no-properties (1+ beg)
-																											 (1- end))))
+                                                       (1- end))))
         (save-excursion
           (goto-char (1+ beg))
           (while (re-search-forward
@@ -709,7 +709,7 @@ Return plist with keywords :specifier, :argument and :specifier."
                   (1- end) t 1)
             (push (parse-help-plist-remove-nils
                    (list
-										:shortarg (match-string-no-properties 1)
+                    :shortarg (match-string-no-properties 1)
                     :argument (match-string-no-properties 2)
                     :specifier (match-string-no-properties 3)
                     :description ""))
@@ -991,10 +991,10 @@ Name is generated from PREFIX-NAME and argument or shortarg."
     switches))
 
 (defun parse-help-maybe-split (column-name mapped-commands)
-	"Group MAPPED-COMMANDS to vectors with COLUMN-NAME."
-	(seq-map-indexed
+  "Group MAPPED-COMMANDS to vectors with COLUMN-NAME."
+  (seq-map-indexed
    (lambda (items idx)
-		 (apply #'vector (append (list (format "%s %d" column-name idx))
+     (apply #'vector (append (list (format "%s %d" column-name idx))
                              items)))
    (seq-remove #'null  (list (seq-take mapped-commands 30)
                              (seq-drop mapped-commands 30)))))

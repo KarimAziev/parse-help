@@ -30,13 +30,11 @@ Download the source code and put it wherever you like and add the directory to t
 *** With use-package and straight
 
 #+begin_src elisp :eval no
-
 (use-package parse-help
-	:straight (parse-help
-			       :repo "KarimAziev/parse-help"
-			       :type git
-			       :host github)
-	:commands (parse-help-transient-generic-form-help
-			       parse-help-command))
-
+  :straight (parse-help
+             :repo "KarimAziev/parse-help"
+             :type git
+             :host github)
+  :commands (parse-help-transient-generic-form-help
+             parse-help-command))
 #+end_src
