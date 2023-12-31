@@ -35,7 +35,16 @@
 (require 'rx)
 
 (defcustom parse-help-use-command-long-descriptions nil
-  "Whether to use long command descriptions from help string."
+  "Boolean to toggle long descriptions in command help parsing.
+
+Determines whether to use long descriptions for commands when parsing help
+buffers. When non-nil, long descriptions are used, providing more detailed
+information. When nil, short descriptions are used, which may be more concise.
+The default value is nil.
+
+To toggle this behavior, set the value to t for long descriptions or nil for
+short descriptions. This can be done programmatically or through the
+customization interface."
   :group 'parse-help
   :type 'boolean)
 
@@ -47,10 +56,13 @@
              (one-or-more
               (not (any "\t\n >"))))
             (any "\t\n >")
-            (opt ">")))))
+            (opt ">"))))
+  "Regular expression to match command-line help flags.")
 
 (defun parse-help-capitalize-variants (word)
-  "Return list of words of WORD, but it with upcased letter."
+  "Generate capitalized variants of WORD.
+
+Argument WORD is the string to generate capitalized variants from."
   (let ((cands)
         (parts (split-string word "" t)))
     (dotimes (i (length parts))
@@ -66,13 +78,22 @@
     (reverse cands)))
 
 (defun parse-help-safe-substring (len word)
-  "Substring WORD from zero to LEN."
+  "Extract a substring of length LEN from WORD, without text properties.
+
+Argument LEN is an integer specifying the maximum length of the substring.
+
+Argument WORD is a string from which the substring will be extracted."
   (if (> (length word) len)
       (substring-no-properties word 0 len)
     word))
 
 (defun parse-help--get-all-key-strategies (word len)
-  "Generate preffered shortcut from WORD with length LEN."
+  "Generate key strategies from a given word.
+
+Argument WORD is a string to be processed for key strategies.
+
+Argument LEN is an integer representing the desired length of the output
+strings."
   (let* ((parts (append (split-string word "[^a-zz-a]" t)
                         (list (replace-regexp-in-string "[^a-zz-a]" "" word))))
          (parts-len (length parts))
@@ -113,14 +134,15 @@
                  (number-sequence 1 (min len parts-len))))))))
 
 (defun parse-help--generate-shortcuts (items &optional key-fn value-fn)
-  "Generate shortcuts from list of ITEMS.
-If KEY-FN is nil, ITEMS should be list of strings or symbols.
-If KEY-FN is a function, it will be called with every item of list, and should
-return string that will be as basis for shortcut.
-If VALUE-FN is nil, result is an alist of generated keys and corresponding
-items.
-If VALUE-FN is non nil, return a list of results of calling VALUE-FN with two
-arguments - generated shortcut and item."
+  "Generate shortcuts for ITEMS with optional key/value functions.
+
+Argument ITEMS is a list of items to generate shortcuts for.
+
+Optional argument KEY-FN is a function that takes an item from ITEMS and returns
+a string to generate the shortcut from.
+
+Optional argument VALUE-FN is a function that takes the generated shortcut and
+the original item, and returns the final form to include in the result list."
   (let* ((total (length items))
          (random-variants (append
                            (mapcar #'char-to-string
@@ -181,19 +203,30 @@ arguments - generated shortcut and item."
       (reverse result))))
 
 (defcustom parse-help-transient-prefix ""
-  "Prefix in generated commands."
+  "Prefix string for transient help parsing.
+
+Specifies the prefix string to use when parsing transient help buffers.
+
+The value should be a string that matches the beginning of lines that are
+considered relevant for parsing. If the prefix does not match the actual
+content, parsing may fail or return incorrect results.
+
+The default value is an empty string, which implies no prefix filtering during
+parsing. Adjust this value to match the specific formatting of the help buffers
+being parsed."
   :type 'string
   :group 'parse-help)
 
 (defun parse-help-re-search-backward-inner (regexp &optional bound count)
-  "This function is helper for `parse-help-re-search-backward'.
-Search backward from point for regular expression REGEXP.
-The optional argument BOUND is a buffer position that bounds
-  the search.  The match found must not end after that position.  A
-  value of nil means search to the end of the accessible portion of
-  the buffer.
-The optional argument COUNT is a number that indicates the
-  search direction and the number of occurrences to search for."
+  "Search backward for REGEXP, skipping over syntax constructs.
+
+Argument REGEXP is the regular expression to search for.
+
+Optional argument BOUND is the buffer position to limit the search; nil means no
+limit.
+
+Optional argument COUNT is the number of successful matches to find; nil means
+to search until the beginning of the buffer."
   (let ((parse))
     (while (> count 0)
       (with-syntax-table emacs-lisp-mode-syntax-table
@@ -210,14 +243,14 @@ The optional argument COUNT is a number that indicates the
   (point))
 
 (defun parse-help-re-search-forward-inner (regexp &optional bound count)
-  "This function is helper for `parse-help-re-search-forward'.
-Search forward from point for regular expression REGEXP.
-The optional argument BOUND is a buffer position that bounds
-  the search.  The match found must not end after that position.  A
-  value of nil means search to the end of the accessible portion of
-  the buffer.
-The optional argument COUNT is a number that indicates the
-  search direction and the number of occurrences to search for."
+  "Search forward for REGEXP, handling Emacs Lisp syntax.
+
+Argument REGEXP is a regular expression string to search for.
+
+Optional argument BOUND is a buffer position that bounds the search; it must be
+a number or nil.
+
+Optional argument COUNT is the number of times to search; it defaults to nil."
   (let ((parse))
     (while (> count 0)
       (with-syntax-table emacs-lisp-mode-syntax-table
@@ -236,8 +269,11 @@ The optional argument COUNT is a number that indicates the
   (point))
 
 (defun parse-help-move-with (fn &optional n)
-  "Move by calling FN N times.
-Return new position if changed, nil otherwise."
+  "Navigate through Lisp code using FN, optionally N times.
+
+Argument FN is a function that moves the point and returns the new position.
+
+Optional argument N is the number of times to call FN. It defaults to 1."
   (unless n (setq n 1))
   (with-syntax-table emacs-lisp-mode-syntax-table
     (when-let ((str-start (nth 8 (syntax-ppss (point)))))
@@ -258,8 +294,17 @@ Return new position if changed, nil otherwise."
         nil))))
 
 (defun parse-help-re-search-forward (regexp &optional bound noerror count)
-  "Search forward from point for REGEXP ignoring elisp comments and strings.
-Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
+  "Search forward for REGEXP, optionally bounded by BOUND, COUNT times.
+
+Argument REGEXP is a regular expression string to search for.
+
+Optional argument BOUND is a buffer position that bounds the search; it must be
+a number or nil.
+
+Optional argument NOERROR, if non-nil, means do not signal an error if the
+search fails.
+
+Optional argument COUNT is the number of times to search; it defaults to 1."
   (unless count (setq count 1))
   (let ((init-point (point))
         (search-fun
@@ -277,7 +322,10 @@ Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
                  (cdr err)))))))
 
 (defmacro parse-help-with-temp-elisp-buffer (&rest body)
-  "Execute BODY inside temporarily buffer in `emacs-lisp-mode' without hooks."
+  "Parse help text using a temporary Emacs Lisp buffer.
+
+Remaining arguments BODY are Lisp expressions to be evaluated in the temporary
+buffer with Emacs Lisp mode enabled."
   (declare (indent 2) (debug t))
   `(with-temp-buffer
      (erase-buffer)
@@ -286,12 +334,14 @@ Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
        ,@body)))
 
 (defun parse-help-backward-up-list (&optional arg)
-  "Move backward up across ARG balanced group of parentheses.
-Return new position if changed, nil otherwise."
+  "Move backward out of one level of parentheses.
+
+Optional argument ARG is the number of times to move up a list level; it
+defaults to 1."
   (parse-help-move-with 'backward-up-list arg))
 
 (defun parse-help-transient-indent-vector ()
-  "Indent vector."
+  "Parse and indent vector in help buffer."
   (while (parse-help-re-search-forward "\\[+" nil t 1)
     (when (looking-at "\"")
       (forward-char -1)
@@ -301,8 +351,13 @@ Return new position if changed, nil otherwise."
         (newline-and-indent)))))
 
 (defun parse-help--get-alphabete (&optional start-char n)
-  "Return N letters from alphabete starting at START-CHAR.
-Default value for START-CHAR is \"a\" and for N - 26."
+  "Generate a list of alphabet letters starting from START-CHAR.
+
+Optional argument START-CHAR is the starting character for the alphabet
+sequence. It defaults to the character \"a\".
+
+Optional argument N is the number of characters to generate in the sequence. It
+defaults to 26."
   (unless n (setq n 26))
   (let ((start-char (if (stringp start-char)
                         (string-to-char start-char)
@@ -315,9 +370,15 @@ Default value for START-CHAR is \"a\" and for N - 26."
     (reverse letters)))
 
 (defun parse-help-group-with (fn items &optional transform-fn)
-  "Group ITEMS by calling FN with every item.
-FN should return key.
-TRANSFORM-FN should return transformed item."
+  "Group ITEMS using FN and optionally transform with TRANSFORM-FN.
+
+Argument FN is a function that takes an item from ITEMS and returns a key for
+grouping.
+
+Argument ITEMS is a list of elements to be grouped.
+
+Optional argument TRANSFORM-FN is a function applied to each item before
+grouping; if nil, ITEMS are grouped as they are."
   (seq-reduce (lambda (acc it)
                 (let* ((key (funcall fn it))
                        (val (if transform-fn (funcall transform-fn it) it))
@@ -333,7 +394,11 @@ TRANSFORM-FN should return transformed item."
               (seq-copy items) '()))
 
 (defun parse-help-s-shared-start (s1 s2)
-  "Return the longest prefix S1 and S2 have in common."
+  "Find common prefix of strings S1 and S2.
+
+Argument S1 is a string to compare.
+
+Argument S2 is another string to compare."
   (declare (pure t)
            (side-effect-free t))
   (let ((search-length (min (length s1)
@@ -346,7 +411,10 @@ TRANSFORM-FN should return transformed item."
     (substring s1 0 i)))
 
 (defun parse-help-transient-description-to-doc (description)
-  "Format DESCRIPTION as documentation string."
+  "Convert transient DESCRIPTION to formatted doc.
+
+Argument DESCRIPTION is a string containing the transient help description to be
+parsed."
   (when-let* ((parts
                (when description
                  (seq-drop-while #'string-empty-p
@@ -405,11 +473,17 @@ TRANSFORM-FN should return transformed item."
              parts "\n"))))
 
 (defun parse-help-alist-get (key alist)
-  "Find the first element of ALIST whose car equals KEY and return its cdr."
+  "Retrieve value associated with KEY in ALIST.
+
+Argument KEY is the key to search for in ALIST.
+
+Argument ALIST is the association list to search."
   (cdr (assoc key alist)))
 
 (defun parse-help-transient-normalize-command-name (cmd)
-  "Remove arguments from CMD and replace whitespaces from CMD."
+  "Normalize CMD by removing trailing hyphens and joining parts.
+
+Argument CMD is a string representing the command name to normalize."
   (string-join
    (seq-take-while
     (fp-compose not
@@ -418,7 +492,9 @@ TRANSFORM-FN should return transformed item."
    "-"))
 
 (defun parse-help-transient-render-sexps (sexps)
-  "Insert SEXPS into the current buffer, formatted as Emacs Lisp code."
+  "Render nested S-expressions into a prettified string.
+
+Argument SEXPS is a list of s-expressions to be rendered."
   (parse-help-with-temp-elisp-buffer
       (dolist (sexp sexps)
         (newline-and-indent)
@@ -454,7 +530,7 @@ TRANSFORM-FN should return transformed item."
       (replace-regexp-in-string "\\[[\n\s\t]+" "[" (buffer-string))))
 
 (defun parse-help-prettify ()
-  "Fix whitespaces in vectors."
+  "Prettify help buffer by removing certain characters and whitespace."
   (let ((re (rx (group
                  (or "[]"
                      (seq (group
@@ -472,14 +548,22 @@ TRANSFORM-FN should return transformed item."
           (let ((pos (point)))
             (delete-region pos (+ pos (skip-chars-forward "\s\t\n\r\f")))))))))
 
-(defvar parse-help-flags-regexp-2 (concat "^[\s]*" parse-help-flags-regexp))
+(defvar parse-help-flags-regexp-2 (concat "^[\s]*" parse-help-flags-regexp)
+  "Regular expression to match help flags with optional leading spaces.")
 (defvar parse-help-flags-first-flag-regexp
-  (concat "^[\s]+" parse-help-flags-regexp))
+  (concat "^[\s]+" parse-help-flags-regexp)
+  "Regular expression to match the first flag in a help output.")
 
-(defvar parse-help-all-specifiers nil)
+(defvar parse-help-all-specifiers nil
+  "Toggle for parsing all format specifiers in help buffers.")
 
 (defmacro parse-help-with-output (output &rest body)
-  "Expand BODY in temp buffer with OUTPUT."
+  "Parse OUTPUT in a temporary buffer and execute BODY.
+
+Argument OUTPUT is a string that will be inserted into the temporary buffer.
+
+Remaining arguments BODY are forms that are evaluated with the current buffer
+set to the temporary buffer containing OUTPUT."
   (declare (indent 1)
            (debug t))
   `(with-temp-buffer
@@ -489,12 +573,13 @@ TRANSFORM-FN should return transformed item."
      ,@body))
 
 (defun parse-help-word-upcased-p (word)
-  "Return t if WORD is upcased."
+  "Check if WORD is entirely uppercase.
+
+Argument WORD is a string to be checked if it is in uppercase."
   (equal word (upcase word)))
 
 (defun parse-help-upcased-specifier-at-point ()
-  "Forward word at point if it stars with two upcased letters.
-Return substring of forwarded word."
+  "Extract and return an uppercase specifier at point."
   (let ((case-fold-search nil))
     (when (looking-at "[A-Z]\\{2\\}")
       (let* ((beg (point))
@@ -502,7 +587,9 @@ Return substring of forwarded word."
         (buffer-substring-no-properties beg end)))))
 
 (defun parse-help-split-argument (item)
-  "Split ITEM into cons of argument and specifier."
+  "Split ITEM at \"[=\" and return a cons cell.
+
+Argument ITEM is a string representing the argument to be split."
   (let ((splitted (split-string item "\\[?=" t)))
     (cond ((and (= 1 (length splitted))
                 (string-suffix-p "=" item))
@@ -512,9 +599,10 @@ Return substring of forwarded word."
                  (string-join (seq-subseq splitted 1) "="))))))
 
 (defun parse-help-flags-at-point (&optional regexp)
-  "Parse flags that match REGEXP at point.
-Return the plist with properties :argument, :shortarg and :specifier.
-Values of :argument and :shortarg is a list and specifier - string or nil."
+  "Extract help flags from text at point.
+
+Optional argument REGEXP is a regular expression used to match help flags at
+point. If not provided, `parse-help-flags-regexp' is used as the default value."
   (unless regexp
     (setq regexp parse-help-flags-regexp))
   (let ((long)
@@ -552,7 +640,7 @@ Values of :argument and :shortarg is a list and specifier - string or nil."
       plist)))
 
 (defun parse-help-all-flags ()
-  "Parse arguments without description."
+  "Extract and return a list of command-line flags from help text."
   (let ((matches)
         (re
          (rx (seq bol
@@ -610,8 +698,10 @@ Values of :argument and :shortarg is a list and specifier - string or nil."
       (reverse matches))))
 
 (defun parse-help-flag-row (&optional regexp)
-  "Parse current line with REGEXP at point.
-Return the plist with :argument, :shortarg, :specifier and :description."
+  "Extract and process flag descriptions from text.
+
+Optional argument REGEXP is a regular expression used to match flag
+descriptions."
   (unless regexp
     (setq regexp parse-help-flags-regexp))
   (when-let* ((flag-pos (progn (skip-chars-forward "\s\t")
@@ -652,12 +742,7 @@ Return the plist with :argument, :shortarg, :specifier and :description."
                  (list :description description)))))))
 
 (defun parse-help-parse-rows-forward ()
-  "Starting from current line, parse and forward help arguments.
-Result is a list of rows, where each row is a list of four strings:
-- argument
-- shortarg
-- specifier
-- description."
+  "Extract and reverse rows matching a regex pattern."
   (let ((rows)
         (case-fold-search nil))
     (while (re-search-forward parse-help-flags-regexp-2 nil t 1)
@@ -668,8 +753,14 @@ Result is a list of rows, where each row is a list of four strings:
     (reverse rows)))
 
 (defun parse-help-get-matches (regexp num str)
-  "Return list of REGEXP matches in STR with.
-NUM specifies which parenthesized expression in the last regexp."
+  "Extract matches from STR using REGEXP and NUM.
+
+Argument REGEXP is a regular expression to search for within STR.
+
+Argument NUM is an integer specifying which parenthesized subexpression in the
+REGEXP to match.
+
+Argument STR is the string to be searched for matches against REGEXP."
   (let ((choices))
     (parse-help-with-output str
       (while (re-search-forward regexp nil t 1)
@@ -678,13 +769,18 @@ NUM specifies which parenthesized expression in the last regexp."
     choices))
 
 (defun parse-help-choices-from-description (description)
-  "Return list of possible options in DESCRIPTION."
+  "Extract matches from DESCRIPTION using regex patterns.
+
+Argument DESCRIPTION is a string containing the help text from which to extract
+choices."
   (when description
     (or (parse-help-get-matches "[']\\([^']+\\)[']:" 1 description)
         (parse-help-get-matches "[']\\([^']+\\)[']" 1 description))))
 
 (defun parse-help-plist-remove-nils (plist)
-  "Return the keys in PLIST."
+  "Remove nil values from PLIST and return cleaned list.
+
+Argument PLIST is a property list where each key is followed by its value."
   (let* ((result (list 'head))
          (last result))
     (while plist
@@ -697,7 +793,10 @@ NUM specifies which parenthesized expression in the last regexp."
     (cdr result)))
 
 (defun parse-help-flatten-plists (plist)
-  "Normalize PLIST with values as list to single properties."
+  "Flatten plists by merging :shortarg, :argument, :description, :specifier.
+
+Argument PLIST is a property list containing the keys :shortarg, :argument,
+:description, and :specifier."
   (let ((shortargs (plist-get plist :shortarg))
         (args (plist-get plist :argument))
         (descr (plist-get plist :description))
@@ -739,12 +838,16 @@ NUM specifies which parenthesized expression in the last regexp."
     (append result no-variants)))
 
 (defun parse-help-plist-props (keywords plist)
-  "Take values of KEYWORDS props from PLIST."
+  "Extract values from PLIST for each KEYWORDS.
+
+Argument KEYWORDS is a list of symbols to look up in PLIST.
+
+Argument PLIST is a property list where each KEYWORDS symbol is followed by its
+corresponding value."
   (mapcar (apply-partially #'plist-get plist) keywords))
 
 (defun parse-help--parse-squared-brackets ()
-  "Parse flags wrapped in squared brackets at point.
-Return plist with keywords :specifier, :argument and :specifier."
+  "Extract flags from squared brackets in text."
   (let ((flags))
     (while (looking-at "\\[")
       (when-let* ((beg (point))
@@ -768,8 +871,9 @@ Return plist with keywords :specifier, :argument and :specifier."
     (delete nil flags)))
 
 (defun parse-help-squared-brackets-flags (str)
-  "Search in STR for flags wrapped in squared brackets.
-Return list of plists with keywords :specifier, :argument and :specifier."
+  "Extract options from square brackets in string STR.
+
+Argument STR is a string containing the help text to be parsed."
   (let ((options))
     (with-temp-buffer
       (erase-buffer)
@@ -781,7 +885,10 @@ Return list of plists with keywords :specifier, :argument and :specifier."
     options))
 
 (defun parse-help-plist-to-row (plist)
-  "Take PLIST props."
+  "Convert PLIST to a row with specified properties.
+
+Argument PLIST is a property list containing the keys :argument, :shortarg,
+:specifier, and :description."
   (parse-help-plist-props
    '(:argument :shortarg
      :specifier
@@ -789,7 +896,12 @@ Return list of plists with keywords :specifier, :argument and :specifier."
    plist))
 
 (defun parse-help-plist-omit (keywords plist)
-  "Omit KEYWORDS keys and values from PLIST."
+  "Filter PLIST, omitting KEYWORDS, and return new plist.
+
+Argument KEYWORDS is a list of property names to omit from the property list.
+
+Argument PLIST is a property list from which properties specified in KEYWORDS
+should be omitted."
   (let ((result)
         (len (length plist)))
     (dotimes (idx len)
@@ -801,7 +913,9 @@ Return list of plists with keywords :specifier, :argument and :specifier."
     result))
 
 (defun parse-help-get-usage-doc (output)
-  "Retrieve usage docstring from OUTPUT."
+  "Extract the shortest usage documentation from OUTPUT.
+
+Argument OUTPUT is a string containing the help output to be parsed."
   (let* ((regexs
           (list
            parse-help-flags-regexp-2
@@ -819,7 +933,10 @@ Return list of plists with keywords :specifier, :argument and :specifier."
                               candidates)))))
 
 (defun parse-help-group-columns (commands-or-vars)
-  "Return alist with groupped COMMANDS-OR-VARS."
+  "Organize commands or variables into groups by type.
+
+Argument COMMANDS-OR-VARS is a list where each element is a plist representing a
+command or variable."
   (seq-reduce
    (lambda (acc val)
      (let* ((key (if (parse-help-word-upcased-p (plist-get val :argument))
@@ -837,7 +954,11 @@ Return list of plists with keywords :specifier, :argument and :specifier."
    (seq-copy commands-or-vars) '()))
 
 (defun parse-help--columns (regexp num)
-  "Search and parse COMMAND flags using REGEXP and NUM."
+  "Extract rows of data matching REGEXP with NUM group.
+
+Argument REGEXP is a regular expression to match the help text.
+
+Argument NUM is an integer specifying the match group to use from REGEXP."
   (let ((rows))
     (while (re-search-forward regexp nil t 1)
       (let ((str (match-string-no-properties num))
@@ -872,12 +993,17 @@ Return list of plists with keywords :specifier, :argument and :specifier."
     rows))
 
 (defun parse-help-make-choices (specifier)
-  "Return list of choices from string SPECIFIER."
+  "Split SPECIFIER into choices, removing angle brackets and pipes.
+
+Argument SPECIFIER is a string containing choices separated by pipe characters
+\\=(\"|\")."
   (when (string-match-p "|" (or specifier ""))
     (split-string (replace-regexp-in-string "^<\\|>$" "" specifier) "|" t)))
 
 (defun parse-help-normalize-option (option)
-  "Normalize argument or switch OPTION."
+  "Normalize OPTION data by updating its properties.
+
+Argument OPTION is a property list containing option details."
   (let* ((specifier (plist-get option :specifier))
          (argument (or (plist-get option :argument)
                        (plist-get option :shortarg)))
@@ -899,7 +1025,10 @@ Return list of plists with keywords :specifier, :argument and :specifier."
       option)))
 
 (defun parse-help-group-options (options)
-  "Group OPTIONS into arguments and inline switch options."
+  "Parse and reduce help group OPTIONS into a structured list.
+
+Argument OPTIONS is a list of plists, where each plist represents a command-line
+option and its associated data."
   (seq-reduce
    (lambda (acc item)
      (let* ((specifier (plist-get item :specifier))
@@ -937,7 +1066,12 @@ Return list of plists with keywords :specifier, :argument and :specifier."
    options '()))
 
 (defun parse-help-generate-key (flag &optional used-keys)
-  "Generate hydra key for option FLAG that not present in USED-KEYS."
+  "Generate a unique key from FLAG, avoiding USED-KEYS.
+
+Argument FLAG is a string representing the command-line flag to process.
+
+Optional argument USED-KEYS is a list of strings representing keys that have
+already been used."
   (when (> (length flag) 2)
     (setq flag (replace-regexp-in-string "^[-][-]" "" flag)))
   (if (and flag (member flag '("--" "-"))
@@ -962,7 +1096,11 @@ Return list of plists with keywords :specifier, :argument and :specifier."
                    used-keys)))))
 
 (defun parse-help-transient-ensure-keys (plists all-keys)
-  "Generate key for PLISTS excluding ALL-KEYS."
+  "Ensure unique keys for transient help items.
+
+Argument PLISTS is a list of property lists, each representing a command option.
+
+Argument ALL-KEYS is a list of keys that are already used."
   (let ((used-keys (append all-keys '("-M")))
         (args))
     (dolist (item plists)
@@ -980,14 +1118,20 @@ Return list of plists with keywords :specifier, :argument and :specifier."
     (reverse args)))
 
 (defun parse-help-transient-get-all-keys (plists)
-  "Retrieve :shortarg and :key from PLISTS."
+  "Extract all :shortarg and :key values from PLISTS.
+
+Argument PLISTS is a list of property lists."
   (let ((result (remove nil (mapcar (fp-or (fp-rpartial plist-get :shortarg)
                                            (fp-rpartial plist-get :key))
                                     plists))))
     result))
 
 (defun parse-help-transient-name (prefix-name plist)
-  "Return symbol from from PREFIX-NAME and :argument or :shortarg from PLIST."
+  "Extract and format transient command name from PLIST.
+
+Argument PREFIX-NAME is a string used as the prefix for the transient name.
+
+Argument PLIST is a property list containing transient argument specifications."
   (let ((argument (plist-get plist :argument))
         (shortarg (plist-get plist :shortarg)))
     (unless argument (setq argument shortarg))
@@ -999,8 +1143,11 @@ Return list of plists with keywords :specifier, :argument and :specifier."
                                                                 argument)))))))
 
 (defun parse-help-define-argument (prefix-name plist)
-  "Convert PLIST to `transient-define-argument' form.
-Name is generated from PREFIX-NAME and argument or shortarg."
+  "Create a transient argument definition.
+
+Argument PREFIX-NAME is the prefix used for transient command names.
+
+Argument PLIST is a property list containing argument details."
   (let ((argument (plist-get plist :argument))
         (shortarg (plist-get plist :shortarg))
         (sym (parse-help-transient-name prefix-name plist))
@@ -1035,7 +1182,10 @@ Name is generated from PREFIX-NAME and argument or shortarg."
           plist))))
 
 (defun parse-help-swtiches-from-arguments (arguments)
-  "REturn ARGUMENTS without specifier or choices."
+  "Extract switch without specifier or choices from ARGUMENTS.
+
+Argument ARGUMENTS is a list of plists where each plist represents a
+command-line argument."
   (let ((switches (seq-remove
                    (fp-or (fp-rpartial plist-get :specifier)
                           (fp-rpartial plist-get :choices))
@@ -1043,7 +1193,11 @@ Name is generated from PREFIX-NAME and argument or shortarg."
     switches))
 
 (defun parse-help-maybe-split (column-name mapped-commands)
-  "Group MAPPED-COMMANDS to vectors with COLUMN-NAME."
+  "Split and label COMMANDS into two vectors if longer than 30 items.
+
+Argument COLUMN-NAME is a string used as a prefix for the output column names.
+
+Argument MAPPED-COMMANDS is a list of commands to be split and formatted."
   (seq-map-indexed
    (lambda (items idx)
      (apply #'vector (append (list (format "%s %d" column-name idx))
@@ -1052,8 +1206,12 @@ Name is generated from PREFIX-NAME and argument or shortarg."
                              (seq-drop mapped-commands 30)))))
 
 (defun parse-help-normalize-args (cmd &optional args)
-  "Trim `parse-help-transient-prefix' from CMD and format ARGS.
-Return string with command CMD and ARGS."
+  "Normalize command CMD and ARGS into a single string.
+
+Argument CMD is the command to be normalized, which can be a symbol or a string.
+
+Optional argument ARGS is a list of strings representing additional arguments to
+CMD."
   (let ((sh-cmd (substring (if (symbolp cmd)
                                (symbol-name cmd) cmd)
                            (length parse-help-transient-prefix)))
@@ -1065,7 +1223,10 @@ Return string with command CMD and ARGS."
     (concat sh-cmd " " str-args)))
 
 (defun parse-help-group-by-prefixes (items)
-  "Group ITEMS by longest common argument prefixes."
+  "Group ITEMS by shared prefixes.
+
+Argument ITEMS is a list of plists, where each plist contains at least an
+`:argument' key associated with a string."
   (let ((strings (mapcar (fp-rpartial plist-get :argument) items)))
     (parse-help-group-with
      (lambda (pl)
@@ -1082,7 +1243,9 @@ Return string with command CMD and ARGS."
      items)))
 
 (defun parse-help-generate-commands-keys (cmds)
-  "Add key property to CMDS."
+  "Extract command keys from CMDS list.
+
+Argument CMDS is a list of commands, symbols, or strings to generate keys for."
   (setq cmds (if (or (seq-find 'stringp cmds)
                      (seq-find 'symbolp cmds))
                  (mapcar (fp-compose
@@ -1116,7 +1279,10 @@ Return string with command CMD and ARGS."
     result))
 
 (defmacro parse-help-evolve (&rest spec)
-  "Return function that apply SPEC to plist."
+  "Transform PLIST according to SPEC functions.
+
+Remaining arguments SPEC are symbols and functions that define the
+transformation of property list items."
   (declare
    (indent defun))
   `(lambda (plist)
@@ -1138,7 +1304,9 @@ Return string with command CMD and ARGS."
        result))))
 
 (defun parse-help-short-description (str)
-  "Make short description from STR."
+  "Extract short description from STR.
+
+Argument STR is the string to parse for a short description."
   (let ((result
          (let ((parts (seq-drop-while
                        (lambda (word)
@@ -1162,7 +1330,10 @@ Return string with command CMD and ARGS."
       result)))
 
 (defun parse-help-map-switches-arr (switch-options)
-  "Return inline SWITCH-OPTIONS."
+  "Parse and transform SWITCH-OPTIONS into a result list.
+
+Argument SWITCH-OPTIONS is a list of plists where each plist represents a
+command-line switch and its associated properties."
   (let ((result (parse-help-maybe-split
                  "Switches"
                  (mapcar
@@ -1199,8 +1370,12 @@ Return string with command CMD and ARGS."
     result))
 
 (defun parse-help-map-commands-vectors (prefix-name commands)
-  "Return vector with COMMANDS.
-PREFIX-NAME is parent command."
+  "Extract command vectors from help map.
+
+Argument PREFIX-NAME is a string used as a prefix for command names.
+
+Argument COMMANDS is a list of plists where each plist represents a command and
+its properties."
   (parse-help-maybe-split
    "Commands"
    (mapcar (fp-converge
@@ -1230,8 +1405,10 @@ PREFIX-NAME is parent command."
            commands)))
 
 (defun parse-help-map-arguments-vector-short (arguments)
-  "Return vector with ARGUMENTS.
-PREFIX-NAME is parent command."
+  "Extract short descriptions from argument vectors.
+
+Argument ARGUMENTS is a list of property lists, each representing a command-line
+argument."
   (parse-help-maybe-split
    "Arguments"
    (mapcar
@@ -1270,8 +1447,13 @@ PREFIX-NAME is parent command."
     arguments)))
 
 (defun parse-help-map-arguments-vector (prefix-name arguments)
-  "Return vector with ARGUMENTS.
-PREFIX-NAME is parent command."
+  "Parse and format argument vector for help documentation.
+
+Argument PREFIX-NAME is a string used as a prefix for the transient command
+names.
+
+Argument ARGUMENTS is a list of property lists, each representing a command
+argument."
   (parse-help-maybe-split "Arguments"
                           (mapcar
                            (fp-converge
@@ -1290,8 +1472,13 @@ PREFIX-NAME is parent command."
                            arguments)))
 
 (defun parse-help-transient-map-to-prefix (parent-prefix-name plist)
-  "Convert PLIST to `transient-define-argument' form.
-Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
+  "Create a transient prefix command from PLIST.
+
+Argument PARENT-PREFIX-NAME is a string representing the parent prefix for the
+transient command.
+
+Argument PLIST is a property list containing various options and configurations
+for the transient command."
   (let* ((prefix-name (format "%s" (parse-help-transient-name
                                     parent-prefix-name
                                     plist)))
@@ -1320,7 +1507,9 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
           ("C-c M-m" parse-help-transient-identity)])))))
 
 (defun parse-help--generate-transient (cmd-cell)
-  "Generate transient from CMD-CELL."
+  "Generate a transient command interface from CMD-CELL.
+
+Argument CMD-CELL is an alist containing command information."
   (let* ((help-cmd (parse-help-alist-get :command
                                          cmd-cell))
          (cmd (parse-help-transient-normalize-command-name help-cmd))
@@ -1352,7 +1541,7 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
 
 ;;;###autoload (autoload 'parse-help-transient-show-args "parse-help.el" nil t)
 (transient-define-suffix parse-help-transient-show-args ()
-  "Show current infix args."
+  "Display current transient command arguments."
   :description "show arguments"
   :transient t
   (interactive)
@@ -1366,7 +1555,7 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
 
 ;;;###autoload (autoload 'parse-help-transient-run-command "parse-help.el" nil t)
 (transient-define-suffix parse-help-transient-run-command ()
-  "Show current infix args."
+  "Run a command in a new or existing vterm buffer."
   :description "Run"
   (interactive)
   (save-selected-window
@@ -1397,14 +1586,14 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
 
 ;;;###autoload (autoload 'parse-help-transient-identity "parse-help.el" nil t)
 (transient-define-suffix parse-help-transient-identity ()
-  "Show current infix args."
+  "Return the arguments of the current transient command."
   :description "Identity"
   (interactive)
   (transient-args transient-current-command))
 
 ;;;###autoload (autoload 'parse-help-transient-insert "parse-help.el" nil t)
 (transient-define-suffix parse-help-transient-insert ()
-  "Insert current infix args."
+  "Insert formatted transient arguments into the current buffer."
   :description "Insert"
   (interactive)
   (insert (mapconcat (apply-partially #'format "%s")
@@ -1412,8 +1601,9 @@ Name is generated from PARENT-PREFIX-NAME and argument or shortarg."
                      "\s")))
 
 (defun parse-help-call-backends (backends)
-  "Invoke BACKENDS on current buffer.
-BACKENDS is alist of functions and arguments."
+  "Collect results from calling BACKENDS functions, handling errors.
+
+Argument BACKENDS is a list of backends to be called by the function."
   (let ((results))
     (dolist (backend backends)
       (condition-case err
@@ -1425,14 +1615,22 @@ BACKENDS is alist of functions and arguments."
     results))
 
 (defun parse-help--parse-output (output backends)
-  "Invoke BACKENDS in temp buffer with OUTPUT.
-BACKENDS is alist of functions and arguments."
+  "Parse OUTPUT using BACKENDS and return results.
+
+Argument OUTPUT is a string containing the help output to be parsed.
+
+Argument BACKENDS is a list of functions with their arguments to process the
+OUTPUT."
   (parse-help-with-output
       output
     (parse-help-call-backends backends)))
 
 (defun parse-help-parse-output (output command)
-  "Parse OUTPUT from COMMAND."
+  "Extract command-line options and arguments from OUTPUT.
+
+Argument OUTPUT is a string containing the help output to be parsed.
+
+Argument COMMAND is the command for which help OUTPUT is being parsed."
   (let* ((results (parse-help--parse-output
                    output
                    '((parse-help-all-flags)
@@ -1455,8 +1653,11 @@ BACKENDS is alist of functions and arguments."
 
 ;;;###autoload
 (defun parse-help-transient-switch-from-region (beg end)
-  "Parse region between BEG and END to transient switch.
-Region should have form --email-obfuscation=none|javascript|references."
+  "Extract and parse command-line switch from selected text.
+
+Argument BEG is the beginning position of the region.
+
+Argument END is the ending position of the region."
   (interactive "r")
   (let* ((input (if (region-active-p)
                     (buffer-substring-no-properties
@@ -1474,10 +1675,13 @@ Region should have form --email-obfuscation=none|javascript|references."
     (pp result)))
 
 (defun parse-help-switch-from-string (str &optional prefix-name plist)
-  "Parse STR --email-obfuscation=none|javascript|references.
-If PLIST is omitted or nil, return full `transient-define-argument' form,
-othervise return  only props.
-PREFIX-NAME is added to the name of argument."
+  "Extract command-line option and choices from a string.
+
+Argument STR is the string containing the help text to parse.
+
+Optional argument PREFIX-NAME is the prefix used for the transient command name.
+
+Optional argument PLIST is a property list to customize the transient switch."
   (let ((option)
         (choices))
     (with-temp-buffer
@@ -1537,9 +1741,10 @@ PREFIX-NAME is added to the name of argument."
 
 ;;;###autoload
 (defun parse-help-extract-all-switches (prefix)
-  "Parse region between BEG and END to transient switch.
-PREFIX is added to the name of argument.
-Region should have form --email-obfuscation=none|javascript|references."
+  "Extract command-line switch from buffer text.
+
+Argument PREFIX is a string used as a prefix for the name of the generated
+switches."
   (interactive "sPrefix name:")
   (let ((opts)
         (end
@@ -1565,7 +1770,9 @@ Region should have form --email-obfuscation=none|javascript|references."
 
 ;;;###autoload
 (defun parse-help-command (command)
-  "Parse output from COMMAND."
+  "Extract and display shell COMMAND help output.
+
+Argument COMMAND is a string representing the shell command to run."
   (interactive (list (read-string "Shell command")))
   (let ((output (shell-command-to-string command))
         (buff (format "*help-output-%s*" command)))
@@ -1582,7 +1789,10 @@ Region should have form --email-obfuscation=none|javascript|references."
 
 ;;;###autoload
 (defun parse-help-generate-transient (&optional command)
-  "Read help COMMAND and insert generated transient arguments."
+  "Generate transient commands from parsed help output.
+
+Optional argument COMMAND is a shell command whose output will be parsed to
+generate a transient interface."
   (interactive)
   (let ((dir default-directory))
     (with-current-buffer (get-buffer-create "*parse-help-transient-generic*")
