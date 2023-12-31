@@ -33,7 +33,7 @@
 
 (require 'fp)
 (require 'transient)
-
+(require 'rx)
 
 (defcustom parse-help-use-command-long-descriptions nil
   "Whether to use long command descriptions from help string."
@@ -41,7 +41,14 @@
   :type 'boolean)
 
 (defvar parse-help-flags-regexp
-  "\\[?\\(\\([-<][-]?[^\s\t\n>]+\\)[\s\t\n>][>]?\\)")
+  (rx (seq (opt "[")
+           (group
+            (group
+             (any "<-")
+             (one-or-more
+              (not (any "\t\n >"))))
+            (any "\t\n >")
+            (opt ">")))))
 
 
 (defun parse-help-capitalize-variants (word)
@@ -445,17 +452,24 @@ TRANSFORM-FN should return transformed item."
 
 (defun parse-help-prettify ()
   "Fix whitespaces in vectors."
-  (save-excursion
-    (goto-char (point-max))
-    (while (re-search-backward "\\(\\[\\]\\|\\(\\]\\|)\\)[\n][\s]?+\\(\\]\\|)\\)\\)"
-                               nil t 1)
-      (if (looking-at "\\[\\]")
-          (delete-char 2)
-        (forward-char 1)
-        (let ((pos (point)))
-          (delete-region pos (+ pos (skip-chars-forward "\s\t\n\t\r\f"))))))))
+  (let ((re (rx (group
+                 (or "[]"
+                     (seq (group
+                           (or "]" ")"))
+                          "\n"
+                          (zero-or-more " ")
+                          (group
+                           (or "]" ")"))))))))
+    (save-excursion
+      (goto-char (point-max))
+      (while (re-search-backward re nil t 1)
+        (if (looking-at "\\[\\]")
+            (delete-char 2)
+          (forward-char 1)
+          (let ((pos (point)))
+            (delete-region pos (+ pos (skip-chars-forward "\s\t\n\r\f")))))))))
 
-(defvar parse-help-flags-regexp-2 (concat "^[\s]?+" parse-help-flags-regexp))
+(defvar parse-help-flags-regexp-2 (concat "^[\s]*" parse-help-flags-regexp))
 
 (defvar parse-help-flags-first-flag-regexp
   (concat "^[\s]+" parse-help-flags-regexp))
@@ -480,7 +494,7 @@ Return substring of forwarded word."
   (let ((case-fold-search nil))
     (when (looking-at "[A-Z]\\{2\\}")
       (let* ((beg (point))
-             (end (+ beg (skip-chars-forward "-*_~$A-Za-z0-9:.#\\+"))))
+             (end (+ beg (skip-chars-forward "-*_~$A-Za-z0-9:.#+"))))
         (buffer-substring-no-properties beg end)))))
 
 (defun parse-help-split-argument (item)
@@ -535,25 +549,57 @@ Values of :argument and :shortarg is a list and specifier - string or nil."
 
 (defun parse-help-all-flags ()
   "Parse arguments without description."
-  (let ((matches))
-    (re-search-forward "^ *[^$] *\\(?:[-]\\([]:a-z-Z-A=\\[|]+\\),?[ 	]+\\([a-z][]:a-z-Z-A=\\[|]+[ ]+\\)?\\)?-+\\([]:a-z-Z-A=\\[|]+\\) +\\(.*\\)$" nil t 1)
-    (beginning-of-line)
-    (while (looking-at "^ *[^$] *\\(?:[-]\\([]:a-z-Z-A=\\[|]+\\),?[ 	]+\\([a-z][]:a-z-Z-A=\\[|]+[ ]+\\)?\\)?-+\\([]:a-z-Z-A=\\[|]+\\) +\\(.*\\)$")
+  (let ((matches)
+        (re
+         (rx (seq bol
+                  (zero-or-more " ")
+                  (not (any "$"))
+                  (zero-or-more " ")
+                  (opt "-"
+                       (group
+                        (one-or-more
+                         (any "a-z" ":=[\\]|-")))
+                       (opt ",")
+                       (one-or-more
+                        (any "\t "))
+                       (opt (group
+                             (any "a-z")
+                             (one-or-more
+                              (any "a-z" ":=[\\]|-"))
+                             (one-or-more " "))))
+                  (one-or-more "-")
+                  (group
+                   (one-or-more
+                    (any "a-z" ":=[\\]|-")))
+                  (one-or-more " ")
+                  (group
+                   (zero-or-more nonl))
+                  eol))))
+    (when (re-search-forward
+           re
+           nil t 1)
+      (goto-char (match-beginning 0)))
+    (while
+        (looking-at
+         re)
       (let ((flag  (match-string-no-properties 1))
             (argument (match-string-no-properties 3))
-            (specifier (match-string-no-properties 2) )
+            (specifier (match-string-no-properties 2))
             (parsed-arg))
         (setq parsed-arg (when argument
                            (parse-help-split-argument argument)))
         (setq specifier (if specifier
                             (string-trim specifier)
                           (cdr parsed-arg)))
-        (push (list :argument (when-let ((f (or (car parsed-arg) argument)))
-                                (concat "--" f))
-                    :shortarg (when flag
-                                (concat "-" flag))
-                    :specifier specifier
-                    :description (or argument flag specifier ""))
+        (push (list
+               :argument
+               (when-let ((f (or (car parsed-arg) argument)))
+                 (concat "--" f))
+               :shortarg
+               (when flag
+                 (concat "-" flag))
+               :specifier specifier
+               :description (or argument flag specifier ""))
               matches)
         (forward-line 1)))
     (when (> (length matches) 1)
@@ -725,7 +771,7 @@ Return list of plists with keywords :specifier, :argument and :specifier."
       (erase-buffer)
       (save-excursion
         (insert str))
-      (while (re-search-forward "^[\s\t]?+[\\[]" nil t 1)
+      (while (re-search-forward "^[\s\t]*[\\[]" nil t 1)
         (forward-char -1)
         (setq options (append options (parse-help--parse-squared-brackets)))))
     options))
@@ -1385,14 +1431,14 @@ BACKENDS is alist of functions and arguments."
                    '((parse-help-all-flags)
                      (parse-help-parse-rows-forward)
                      (parse-help--columns
-                      "^[\s\t]?+\\([-]+[a-zZ-A-0-9_]+\\)[:]?[\s][\s]+"
+                      "^[\s\t]*\\([-]+[a-z0-9_-]+\\)[:]?[\s][\s]+"
                       1))))
          (options (car (seq-sort-by #'length #'> results)))
          (commands-or-vars
           (parse-help-group-columns
            (parse-help-with-output output
              (parse-help--columns
-              "^[\s\t]?+\\([a-zZ-A]+[a-zZ-A-0-9_]+\\)[:]?[\s][\s]+"
+              "^[\s\t]*\\([a-z]+[a-z0-9_-]+\\)[:]?[\s][\s]+"
               1))))
          (usage (parse-help-get-usage-doc output)))
     (append `((:usage . ,usage)
