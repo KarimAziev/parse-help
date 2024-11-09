@@ -276,13 +276,13 @@ Argument FN is a function that moves the point and returns the new position.
 Optional argument N is the number of times to call FN. It defaults to 1."
   (unless n (setq n 1))
   (with-syntax-table emacs-lisp-mode-syntax-table
-    (when-let ((str-start (nth 8 (syntax-ppss (point)))))
+    (when-let* ((str-start (nth 8 (syntax-ppss (point)))))
       (goto-char str-start))
     (let ((init-pos (point))
           (pos)
           (count n))
       (while (and (not (= count 0))
-                  (when-let ((end (ignore-errors
+                  (when-let* ((end (ignore-errors
                                     (funcall fn)
                                     (point))))
                     (unless (= end (or pos init-pos))
@@ -434,7 +434,7 @@ parsed."
                (setq it (string-trim it))
                (substring-no-properties
                 (or
-                 (when-let ((words
+                 (when-let* ((words
                              (when (>
                                     (length
                                      it)
@@ -685,7 +685,7 @@ point. If not provided, `parse-help-flags-regexp' is used as the default value."
                           (cdr parsed-arg)))
         (push (list
                :argument
-               (when-let ((f (or (car parsed-arg) argument)))
+               (when-let* ((f (or (car parsed-arg) argument)))
                  (concat "--" f))
                :shortarg
                (when flag
@@ -748,7 +748,7 @@ descriptions."
     (while (re-search-forward parse-help-flags-regexp-2 nil t 1)
       (beginning-of-line)
       (while
-          (when-let ((parsed (parse-help-flag-row)))
+          (when-let* ((parsed (parse-help-flag-row)))
             (setq rows (append rows parsed)))))
     (reverse rows)))
 
@@ -968,7 +968,7 @@ Argument NUM is an integer specifying the match group to use from REGEXP."
             (subflags)
             (row))
         (setq descr-end (or (save-excursion
-                              (when-let ((found (re-search-forward
+                              (when-let* ((found (re-search-forward
                                                  regexp nil t 1)))
                                 (forward-line -1)
                                 (point)))
@@ -985,7 +985,7 @@ Argument NUM is an integer specifying the match group to use from REGEXP."
                     :description description)
                    (if subflags
                        (list :arguments subflags)
-                     (when-let ((choices (parse-help-choices-from-description
+                     (when-let* ((choices (parse-help-choices-from-description
                                           description)))
                        (list :choices
                              choices)))))
@@ -1104,7 +1104,7 @@ Argument ALL-KEYS is a list of keys that are already used."
   (let ((used-keys (append all-keys '("-M")))
         (args))
     (dolist (item plists)
-      (when-let ((key (and item (parse-help-generate-key
+      (when-let* ((key (and item (parse-help-generate-key
                                  (or
                                   (plist-get item :shortarg)
                                   (plist-get item :argument)
@@ -1312,7 +1312,7 @@ Argument STR is the string to parse for a short description."
                        (lambda (word)
                          (not (string-match-p "^[a-z]" word)))
                        (split-string str nil t))))
-           (if-let ((pos (seq-position parts "." (lambda (it _b)
+           (if-let* ((pos (seq-position parts "." (lambda (it _b)
                                                    (if (string-match-p "[.]$" it)
                                                        t
                                                      nil)))))
@@ -1545,7 +1545,7 @@ Argument CMD-CELL is an alist containing command information."
   :description "show arguments"
   :transient t
   (interactive)
-  (if-let ((cmd (parse-help-normalize-args
+  (if-let* ((cmd (parse-help-normalize-args
                  transient-current-command
                  (transient-args transient-current-command))))
       (message (concat (propertize "Current args: " 'face 'success))
